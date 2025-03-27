@@ -20,7 +20,7 @@ type OrderExecutionAdapter struct {
 // NewOrderExecutionAdapter crea un nuevo adaptador para ejecución de órdenes en Binance
 func NewOrderExecutionAdapter(apiKey, apiSecret string, logger *zap.Logger) *OrderExecutionAdapter {
 	client := binance.NewClient(apiKey, apiSecret)
-	
+
 	return &OrderExecutionAdapter{
 		client: client,
 		logger: logger,
@@ -40,20 +40,20 @@ func (a *OrderExecutionAdapter) CreateOrder(
 	// Convertir los tipos de dominio a tipos de Binance
 	binanceSide := binance.SideType(side)
 	binanceOrderType := binance.OrderType(orderType)
-	
+
 	// Preparar la solicitud de orden
 	quantityStr := strconv.FormatFloat(quantity, 'f', -1, 64)
-	
+
 	var priceStr string
 	if price > 0 {
 		priceStr = strconv.FormatFloat(price, 'f', -1, 64)
 	}
-	
+
 	var stopPriceStr string
 	if stopPrice > 0 {
 		stopPriceStr = strconv.FormatFloat(stopPrice, 'f', -1, 64)
 	}
-	
+
 	// Crear la orden según el tipo
 	var createOrderService *binance.CreateOrderService
 	switch orderType {
@@ -65,14 +65,14 @@ func (a *OrderExecutionAdapter) CreateOrder(
 			TimeInForce(binance.TimeInForceTypeGTC).
 			Quantity(quantityStr).
 			Price(priceStr)
-			
+
 	case ports.OrderTypeMarket:
 		createOrderService = a.client.NewCreateOrderService().
 			Symbol(symbol).
 			Side(binanceSide).
 			Type(binanceOrderType).
 			Quantity(quantityStr)
-			
+
 	case ports.OrderTypeStop:
 		createOrderService = a.client.NewCreateOrderService().
 			Symbol(symbol).
@@ -80,23 +80,23 @@ func (a *OrderExecutionAdapter) CreateOrder(
 			Type(binance.OrderTypeStopLoss).
 			Quantity(quantityStr).
 			StopPrice(stopPriceStr)
-			
+
 	default:
 		return ports.Order{}, fmt.Errorf("tipo de orden no soportado: %s", orderType)
 	}
-	
+
 	// Ejecutar la orden
 	res, err := createOrderService.Do(ctx)
 	if err != nil {
 		return ports.Order{}, fmt.Errorf("error al crear orden: %w", err)
 	}
-	
+
 	// Convertir la respuesta al formato del dominio
 	order, err := a.convertBinanceOrderToPortsOrder(res)
 	if err != nil {
 		return ports.Order{}, fmt.Errorf("error al convertir orden: %w", err)
 	}
-	
+
 	return order, nil
 }
 
@@ -114,13 +114,13 @@ func (a *OrderExecutionAdapter) GetOrder(
 	if err != nil {
 		return ports.Order{}, fmt.Errorf("error al obtener orden: %w", err)
 	}
-	
+
 	// Convertir la respuesta al formato del dominio
 	order, err := a.convertBinanceOrderToPortsOrder(res)
 	if err != nil {
 		return ports.Order{}, fmt.Errorf("error al convertir orden: %w", err)
 	}
-	
+
 	return order, nil
 }
 
@@ -138,7 +138,7 @@ func (a *OrderExecutionAdapter) CancelOrder(
 	if err != nil {
 		return fmt.Errorf("error al cancelar orden: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -154,21 +154,21 @@ func (a *OrderExecutionAdapter) ListOpenOrders(
 	if err != nil {
 		return nil, fmt.Errorf("error al listar órdenes abiertas: %w", err)
 	}
-	
+
 	// Convertir las respuestas al formato del dominio
 	orders := make([]ports.Order, 0, len(res))
 	for _, binanceOrder := range res {
 		order, err := a.convertBinanceOrderToPortsOrder(binanceOrder)
 		if err != nil {
-			a.logger.Error("Error al convertir orden", 
-				zap.String("symbol", symbol), 
-				zap.Int64("orderID", binanceOrder.OrderID), 
+			a.logger.Error("Error al convertir orden",
+				zap.String("symbol", symbol),
+				zap.Int64("orderID", binanceOrder.OrderID),
 				zap.Error(err))
 			continue
 		}
 		orders = append(orders, order)
 	}
-	
+
 	return orders, nil
 }
 
@@ -179,31 +179,31 @@ func (a *OrderExecutionAdapter) GetAccount(ctx context.Context) (ports.Account, 
 	if err != nil {
 		return ports.Account{}, fmt.Errorf("error al obtener información de la cuenta: %w", err)
 	}
-	
+
 	// Convertir la respuesta al formato del dominio
 	account := ports.Account{
 		TotalBalance:     0, // Se calculará sumando los balances
 		AvailableBalance: 0, // Se calculará sumando los balances disponibles
 		Assets:           make(map[string]ports.AssetBalance),
-		UpdateTime:       time.Unix(0, res.UpdateTime*int64(time.Millisecond)),
+		UpdateTime:       time.Unix(0, int64(res.UpdateTime)*int64(time.Millisecond)),
 	}
-	
+
 	// Convertir los balances de activos
 	for _, balance := range res.Balances {
 		free, err := strconv.ParseFloat(balance.Free, 64)
 		if err != nil {
-			a.logger.Error("Error al parsear balance libre", 
+			a.logger.Error("Error al parsear balance libre",
 				zap.String("asset", balance.Asset), zap.Error(err))
 			continue
 		}
-		
+
 		locked, err := strconv.ParseFloat(balance.Locked, 64)
 		if err != nil {
-			a.logger.Error("Error al parsear balance bloqueado", 
+			a.logger.Error("Error al parsear balance bloqueado",
 				zap.String("asset", balance.Asset), zap.Error(err))
 			continue
 		}
-		
+
 		// Solo incluir activos con balance
 		if free > 0 || locked > 0 {
 			account.Assets[balance.Asset] = ports.AssetBalance{
@@ -211,7 +211,7 @@ func (a *OrderExecutionAdapter) GetAccount(ctx context.Context) (ports.Account, 
 				Free:   free,
 				Locked: locked,
 			}
-			
+
 			// Calcular balance total y disponible (consideramos especialmente USDT)
 			if balance.Asset == "USDT" {
 				account.TotalBalance += free + locked
@@ -219,50 +219,89 @@ func (a *OrderExecutionAdapter) GetAccount(ctx context.Context) (ports.Account, 
 			}
 		}
 	}
-	
+
 	return account, nil
 }
 
 // convertBinanceOrderToPortsOrder convierte una orden de Binance al formato del dominio
 func (a *OrderExecutionAdapter) convertBinanceOrderToPortsOrder(
-	binanceOrder *binance.Order,
+	binanceOrder interface{},
 ) (ports.Order, error) {
-	// Parsear cantidades y precios
-	price, err := strconv.ParseFloat(binanceOrder.Price, 64)
-	if err != nil {
-		return ports.Order{}, fmt.Errorf("error al parsear precio: %w", err)
-	}
-	
-	origQty, err := strconv.ParseFloat(binanceOrder.OrigQuantity, 64)
-	if err != nil {
-		return ports.Order{}, fmt.Errorf("error al parsear cantidad original: %w", err)
-	}
-	
-	execQty, err := strconv.ParseFloat(binanceOrder.ExecutedQuantity, 64)
-	if err != nil {
-		return ports.Order{}, fmt.Errorf("error al parsear cantidad ejecutada: %w", err)
-	}
-	
-	stopPrice := 0.0
-	if binanceOrder.StopPrice != "" {
-		stopPrice, err = strconv.ParseFloat(binanceOrder.StopPrice, 64)
+	var order ports.Order
+
+	switch v := binanceOrder.(type) {
+	case *binance.CreateOrderResponse:
+		// Convertir CreateOrderResponse
+		price, err := strconv.ParseFloat(v.Price, 64)
 		if err != nil {
-			return ports.Order{}, fmt.Errorf("error al parsear stop price: %w", err)
+			return ports.Order{}, fmt.Errorf("error al parsear precio: %w", err)
 		}
+
+		origQty, err := strconv.ParseFloat(v.OrigQuantity, 64)
+		if err != nil {
+			return ports.Order{}, fmt.Errorf("error al parsear cantidad original: %w", err)
+		}
+
+		execQty, err := strconv.ParseFloat(v.ExecutedQuantity, 64)
+		if err != nil {
+			return ports.Order{}, fmt.Errorf("error al parsear cantidad ejecutada: %w", err)
+		}
+
+		order = ports.Order{
+			Symbol:           v.Symbol,
+			OrderID:          v.OrderID,
+			ClientOrderID:    v.ClientOrderID,
+			Price:            price,
+			OriginalQuantity: origQty,
+			ExecutedQuantity: execQty,
+			Status:           ports.OrderStatus(v.Status),
+			Type:             ports.OrderType(v.Type),
+			Side:             ports.OrderSide(v.Side),
+			Time:             time.Unix(0, v.TransactTime*int64(time.Millisecond)),
+		}
+
+	case *binance.Order:
+		// Convertir Order
+		price, err := strconv.ParseFloat(v.Price, 64)
+		if err != nil {
+			return ports.Order{}, fmt.Errorf("error al parsear precio: %w", err)
+		}
+
+		origQty, err := strconv.ParseFloat(v.OrigQuantity, 64)
+		if err != nil {
+			return ports.Order{}, fmt.Errorf("error al parsear cantidad original: %w", err)
+		}
+
+		execQty, err := strconv.ParseFloat(v.ExecutedQuantity, 64)
+		if err != nil {
+			return ports.Order{}, fmt.Errorf("error al parsear cantidad ejecutada: %w", err)
+		}
+
+		stopPrice := 0.0
+		if v.StopPrice != "" {
+			stopPrice, err = strconv.ParseFloat(v.StopPrice, 64)
+			if err != nil {
+				return ports.Order{}, fmt.Errorf("error al parsear stop price: %w", err)
+			}
+		}
+
+		order = ports.Order{
+			Symbol:           v.Symbol,
+			OrderID:          v.OrderID,
+			ClientOrderID:    v.ClientOrderID,
+			Price:            price,
+			OriginalQuantity: origQty,
+			ExecutedQuantity: execQty,
+			Status:           ports.OrderStatus(v.Status),
+			Type:             ports.OrderType(v.Type),
+			Side:             ports.OrderSide(v.Side),
+			StopPrice:        stopPrice,
+			Time:             time.Unix(0, v.Time*int64(time.Millisecond)),
+		}
+
+	default:
+		return ports.Order{}, fmt.Errorf("tipo de orden no soportado: %T", binanceOrder)
 	}
-	
-	// Crear y retornar la orden en formato del dominio
-	return ports.Order{
-		Symbol:           binanceOrder.Symbol,
-		OrderID:          binanceOrder.OrderID,
-		ClientOrderID:    binanceOrder.ClientOrderID,
-		Price:            price,
-		OriginalQuantity: origQty,
-		ExecutedQuantity: execQty,
-		Status:           ports.OrderStatus(binanceOrder.Status),
-		Type:             ports.OrderType(binanceOrder.Type),
-		Side:             ports.OrderSide(binanceOrder.Side),
-		StopPrice:        stopPrice,
-		Time:             time.Unix(0, binanceOrder.Time*int64(time.Millisecond)),
-	}, nil
-} 
+
+	return order, nil
+}
